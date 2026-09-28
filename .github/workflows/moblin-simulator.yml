@@ -6,11 +6,11 @@ on:
 jobs:
   build:
     name: Build iOS Simulator
-    runs-on: macos-26-intel
+    runs-on: macos-26
 
     steps:
       - name: Checkout Moblin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -18,6 +18,7 @@ jobs:
         run: |
           uname -m
           xcodebuild -version
+          swift --version
           xcrun simctl list runtimes
 
       - name: Create Moblin user config
@@ -39,7 +40,7 @@ jobs:
             -project Moblin.xcodeproj \
             -scheme Moblin
 
-      - name: Build Moblin for iOS Simulator
+      - name: Build Moblin for ARM iOS Simulator
         run: |
           set -o pipefail
 
@@ -47,26 +48,24 @@ jobs:
             -project Moblin.xcodeproj \
             -scheme Moblin \
             -configuration Debug \
-            -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$PWD/build" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             build
 
       - name: Find Moblin.app
         run: |
-          APP_PATH=$(find "$PWD/build/Build/Products" \
-            -type d \
-            -name "Moblin.app" \
-            | head -1)
+          APP_PATH="$PWD/build/Build/Products/Debug-iphonesimulator/Moblin.app"
 
           echo "APP_PATH=$APP_PATH"
 
-          if [ -z "$APP_PATH" ]; then
-            echo "Moblin.app não encontrado."
-            find "$PWD/build/Build/Products" -maxdepth 4 -type d
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Moblin.app do iPhone não encontrado."
+            echo "Apps encontrados:"
+            find "$PWD/build/Build/Products" -type d -name "*.app" -print
             exit 1
           fi
 
@@ -75,24 +74,38 @@ jobs:
       - name: Check architecture
         run: |
           echo "App: $APP_PATH"
-          file "$APP_PATH/Moblin" || true
+
+          file "$APP_PATH/Moblin"
+
+          echo ""
+          echo "Architectures:"
           lipo -info "$APP_PATH/Moblin" || true
+
+          echo ""
+          echo "Bundle:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$APP_PATH/Info.plist" || true
 
       - name: Create Appetize ZIP
         run: |
+          cd "$(dirname "$APP_PATH")"
+
           ditto \
             -c \
             -k \
             --sequesterRsrc \
             --keepParent \
-            "$APP_PATH" \
-            Moblin-Simulator.zip
+            "Moblin.app" \
+            "$GITHUB_WORKSPACE/Moblin-Simulator-ARM64.zip"
 
-          ls -lh Moblin-Simulator.zip
+          cd "$GITHUB_WORKSPACE"
+
+          ls -lh Moblin-Simulator-ARM64.zip
 
       - name: Upload Moblin Simulator
         uses: actions/upload-artifact@v4
         with:
-          name: Moblin-Simulator
-          path: Moblin-Simulator.zip
+          name: Moblin-Simulator-ARM64
+          path: Moblin-Simulator-ARM64.zip
           retention-days: 7

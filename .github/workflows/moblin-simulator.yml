@@ -1,0 +1,98 @@
+name: Build Moblin for Appetize
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS Simulator
+    runs-on: macos-15-intel
+
+    steps:
+      - name: Checkout Moblin
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show environment
+        run: |
+          uname -m
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Create Moblin user config
+        run: |
+          mkdir -p Config
+
+          cat > Config/User.xcconfig <<'EOF'
+          DEVELOPMENT_TEAM =
+          BASE_PRODUCT_BUNDLE_IDENTIFIER = com.viiitaodev.MoblinSimulator
+          CAPABILITIES = free
+          EOF
+
+          cat Config/User.xcconfig
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project Moblin.xcodeproj \
+            -scheme Moblin
+
+      - name: Build Moblin for iOS Simulator
+        run: |
+          set -o pipefail
+
+          xcodebuild \
+            -project Moblin.xcodeproj \
+            -scheme Moblin \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Find Moblin.app
+        run: |
+          APP_PATH=$(find "$PWD/build/Build/Products" \
+            -type d \
+            -name "Moblin.app" \
+            | head -1)
+
+          echo "APP_PATH=$APP_PATH"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "Moblin.app não encontrado."
+            find "$PWD/build/Build/Products" -maxdepth 4 -type d
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Check architecture
+        run: |
+          echo "App: $APP_PATH"
+          file "$APP_PATH/Moblin" || true
+          lipo -info "$APP_PATH/Moblin" || true
+
+      - name: Create Appetize ZIP
+        run: |
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$APP_PATH" \
+            Moblin-Simulator.zip
+
+          ls -lh Moblin-Simulator.zip
+
+      - name: Upload Moblin Simulator
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moblin-Simulator
+          path: Moblin-Simulator.zip
+          retention-days: 7
